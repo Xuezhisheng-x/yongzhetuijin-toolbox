@@ -45,12 +45,26 @@ textarea{width:100%;border:1px solid var(--line);border-radius:6px;padding:10px;
 .breakdown.show{display:block}
 .breakdown span{display:inline-block;min-width:120px}
 .breakdown .bd-val{color:var(--blue);font-weight:600}
+/* 预设槽位 */
+.preset-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}
+.preset-slot{border:1px solid var(--line);border-radius:8px;padding:8px 10px;text-align:center;background:#fafafa;transition:.15s}
+.preset-slot.has-data{border-color:var(--blue);background:#f0f7ff}
+.preset-name{font-size:13px;font-weight:600;color:var(--text);display:block;margin-bottom:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.preset-actions{display:flex;gap:4px;justify-content:center}
+.btn-preset{padding:3px 10px;border:1px solid var(--line);border-radius:4px;font-size:11px;cursor:pointer;background:#fff;color:var(--sub);transition:.15s}
+.btn-preset:hover{border-color:var(--blue);color:var(--blue)}
+.btn-preset-load{background:var(--blue);color:#fff;border-color:var(--blue)}
+.btn-preset-load:hover{opacity:.85}
+.btn-preset-del{color:var(--red);border-color:#ffd0d0}
+.btn-preset-del:hover{background:#fee}
 </style>
 </head>
 <body>
 <div class="wrap">
 <h1>勇者突进 · 计算器校准</h1>
 <div class="tip" id="tipText">正在加载数据...</div>
+
+<div class="card"><h2>我的预设（点击加载 / 按住保存）</h2><div id="presetBox"></div></div>
 
 <div class="card"><h2>基础模块（单选）</h2><div id="singleBox"></div></div>
 
@@ -63,20 +77,13 @@ textarea{width:100%;border:1px solid var(--line);border-radius:6px;padding:10px;
 
 <div class="actions">
 <button class="btn btn-primary" id="calcBtn">计算</button>
-<button class="btn btn-default" id="presetBtn">载入「极限关羽」预设</button>
 <button class="btn btn-default" id="resetBtn">重置</button>
 <button class="btn btn-default" id="saveBtn">保存配置</button>
 <button class="btn btn-default" id="clearBtn">清除存档</button>
 </div>
 
 <div class="card"><h2>计算结果</h2>
-<table id="mineTable"><thead><tr><th>属性</th><th>我的结果</th><th>原站</th><th>差值</th></tr></thead><tbody></tbody></table>
-</div>
-
-<div class="card"><h2>原站结果（粘贴比对）</h2>
-<textarea id="target" placeholder="例如：&#10;攻击: 3560&#10;生命: 4210&#10;防御: 880&#10;..."></textarea>
-<button class="btn btn-primary" id="cmpBtn" style="margin-top:10px">比对</button>
-<div class="legend" id="cmpInfo"></div>
+<table id="mineTable"><thead><tr><th>属性</th><th>数值</th></tr></thead><tbody></tbody></table>
 </div>
 </div>
 
@@ -93,7 +100,7 @@ function initPage() {
   // 优先用 meta.attrLabels（更完整，含 tankDamage/对X增伤 等），其次顶层 attrLabels
   ATTR_LABELS = ALL.meta.attrLabels || ALL.attrLabels || {};
 
-  document.getElementById('tipText').innerHTML = '用法：①点「载入极限关羽」自动填好全部模块 → ②点「计算」→ ③在原站用相同配置跑一次，把结果粘贴到下方文本框 → ④点「比对」看差异。';
+  document.getElementById('tipText').innerHTML = '用法：配置好各模块 → 点「计算」查看结果 → 用「我的预设」保存常用方案，下次一键加载。';
 
   // 多选模块定义
   var MULTI = [
@@ -334,12 +341,12 @@ function initPage() {
       // 主行（可点击展开）
       var tr=document.createElement('tr'); tr.className='attr-row'; tr.dataset.attr=k;
       var arrow='<span class="arrow"></span>';
-      tr.innerHTML='<td>'+arrow+(ATTR_LABELS[k]||k)+'</td><td class="mine">'+(Number.isInteger(v)?v:v.toFixed(2))+'</td><td class="tgt">—</td><td class="df">—</td>';
+      tr.innerHTML='<td>'+arrow+(ATTR_LABELS[k]||k)+'</td><td class="mine">'+(Number.isInteger(v)?v:v.toFixed(2))+'</td>';
       // 明细行
       var bdRow=document.createElement('tr');
       var items=(BD[k]||[]).map(function(item){return '<span>'+item.m+': <span class="bd-val">'+item.v+'</span></span>';}).join('');
       bdRow.className='breakdown'; bdRow.id='bd_'+k;
-      bdRow.innerHTML='<td colspan="4">'+items+'</td>';
+      bdRow.innerHTML='<td colspan="2">'+items+'</td>';
       // 点击展开/收起
       tr.onclick=function(){
         var isOpen=this.classList.contains('open');
@@ -349,7 +356,7 @@ function initPage() {
       };
       tb.appendChild(tr); tb.appendChild(bdRow);
     });
-    document.getElementById('cmpInfo').textContent='已计算 '+tb.children.length/2+' 项非零属性。点击属性名展开来源明细。';
+    showStatus('已计算 '+tb.children.length/2+' 项非零属性。点击属性名展开来源明细。');
   };
 
   document.getElementById('resetBtn').onclick=function(){
@@ -358,7 +365,7 @@ function initPage() {
     document.querySelectorAll('select').forEach(function(s){s.value='';});
     MINE=null;
     var tb=document.querySelector('#mineTable tbody'); if(tb) tb.innerHTML='';
-    document.getElementById('cmpInfo').textContent='';
+    showStatus('');
   };
 
   // 预设 - 装备洗炼按4部位分组
@@ -410,38 +417,56 @@ function initPage() {
     });
   }
 
-  document.getElementById('presetBtn').onclick=function(){applyPreset(PRESET);};
-
-  // 比对
-  document.getElementById('cmpBtn').onclick=function(){
-    if(!MINE){alert('请先点「计算」');return;}
-    var txt=document.getElementById('target').value.trim();
-    var map={};
-    txt.split(/\n/).forEach(function(line){
-      var m=line.match(/^\s*([^:：]+)[：:]\s*([-\d.]+)/);
-      if(m){var key=m[1].trim();var val=Number(m[2]);
-        var k=null;
-        for(var i=0;i<AK.length;i++){if((ATTR_LABELS[AK[i]]||AK[i])===key){k=AK[i];break;}}
-        if(k===null){for(var j=0;j<AK.length;j++){if(AK[j]===key){k=AK[j];break;}}}
-        if(k!=null) map[k]=val;
+  // ====== 预设系统（10个槽位）======
+  var PRESET_KEY = 'mryue_preset_';
+  var MAX_PRESETS = 10;
+  function renderPresets() {
+    var box = document.getElementById('presetBox');
+    var html = '<div class="preset-grid">';
+    for (var i = 1; i <= MAX_PRESETS; i++) {
+      var saved = localStorage.getItem(PRESET_KEY + i);
+      var label = saved ? (JSON.parse(saved).name || ('预设' + i)) : ('预设' + i);
+      var hasData = !!saved;
+      html += '<div class="preset-slot' + (hasData ? ' has-data' : '') + '" data-idx="' + i + '">'
+        + '<span class="preset-name">' + label + '</span>'
+        + '<div class="preset-actions">'
+        + '<button class="btn-preset btn-preset-load" data-idx="' + i + '">加载</button>'
+        + '<button class="btn-preset btn-preset-save" data-idx="' + i + '">保存</button>'
+        + '<button class="btn-preset btn-preset-del" data-idx="' + i + '">删除</button>'
+        + '</div></div>';
+    }
+    box.innerHTML = html + '</div>';
+    // 绑定事件
+    box.querySelector('.preset-grid').onclick = function(e) {
+      var tgt = e.target;
+      if (!tgt.classList.contains('btn-preset')) return;
+      var idx = tgt.getAttribute('data-idx');
+      if (tgt.classList.contains('btn-preset-load')) {
+        var raw = localStorage.getItem(PRESET_KEY + idx);
+        if (raw) { applyPreset(JSON.parse(raw)); showStatus('已加载 ' + (JSON.parse(raw).name || '预设' + idx)); }
+        else { showStatus('预设' + idx + ' 为空，请先保存'); }
+      } else if (tgt.classList.contains('btn-preset-save')) {
+        var st = collectState();
+        var name = prompt('给这个预设起个名字：', '预设' + idx);
+        if (name === null) return;
+        st.name = name;
+        localStorage.setItem(PRESET_KEY + idx, JSON.stringify(st));
+        renderPresets();
+        showStatus('已保存为「' + name + '」');
+      } else if (tgt.classList.contains('btn-preset-del')) {
+        if (!confirm('确定删除预设' + idx + '？')) return;
+        localStorage.removeItem(PRESET_KEY + idx);
+        renderPresets();
+        showStatus('已删除预设' + idx);
       }
-    });
-    var tb=document.querySelector('#mineTable tbody');
-    var bad=0,tot=0;
-    [].forEach.call(tb.children,function(tr){
-      var label=tr.children[0].textContent;
-      var k=null;
-      for(var i=0;i<AK.length;i++){if((ATTR_LABELS[AK[i]]||AK[i])===label){k=AK[i];break;}}
-      var mine=MINE[k]||0;
-      var tgt=map[k];
-      var tgtTd=tr.children[2],dfTd=tr.children[3];
-      if(tgt!=null){tot++;var d=mine-tgt;dfTd.textContent=(d>0?'+':'')+d;
-        if(d!==0){tr.classList.add('diff');bad++;tgtTd.textContent=tgt;}
-        else{tr.classList.remove('diff');tgtTd.textContent=tgt;}
-      }else{tgtTd.textContent='—';dfTd.textContent='—';}
-    });
-    document.getElementById('cmpInfo').innerHTML=(tot===0?'未解析到原站数据。':'比对 '+tot+' 项，差异 '+bad+' 项。')+(bad===0?' <span class="ok">完全一致 ✓</span>':'');
-  };
+    };
+  }
+
+  function showStatus(msg) {
+    document.getElementById('tipText').innerHTML = msg;
+  }
+
+  renderPresets();
 
   // ====== 本地存档（localStorage）：保存 / 清除 / 打开自动恢复 ======
   var SAVE_KEY = 'mryue_calib_save_v1';
@@ -467,15 +492,15 @@ function initPage() {
   document.getElementById('saveBtn').onclick=function(){
     try{
       localStorage.setItem(SAVE_KEY, JSON.stringify(collectState()));
-      document.getElementById('cmpInfo').textContent='✅ 已保存当前配置到本地浏览器（下次打开自动恢复）';
+      showStatus('已保存当前配置（下次打开自动恢复）');
     }catch(e){
-      alert('保存失败：'+e.message+'\n提示：用 file:// 直接打开时，部分浏览器会禁用本地存储，可改用本地服务器打开此HTML。');
+      alert('保存失败：'+e.message);
     }
   };
   document.getElementById('clearBtn').onclick=function(){
     try{
       localStorage.removeItem(SAVE_KEY);
-      document.getElementById('cmpInfo').textContent='已清除本地存档（当前界面选择不受影响）';
+      showStatus('已清除本地存档（当前界面不受影响）');
     }catch(e){}
   };
   // 页面打开时自动恢复上次的存档
@@ -484,8 +509,7 @@ function initPage() {
       var raw=localStorage.getItem(SAVE_KEY);
       if(raw){
         applyPreset(JSON.parse(raw));
-        var ci=document.getElementById('cmpInfo');
-        if(ci) ci.textContent='已从本地存档恢复上次配置（「保存配置」覆盖 / 「清除存档」清空）';
+        showStatus('已从本地存档恢复上次配置');
       }
     }catch(e){}
   })();
