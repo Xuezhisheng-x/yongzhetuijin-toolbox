@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>勇者突进 · 计算器校准</title>
+<style>
+:root{--blue:#1989fa;--red:#ee0a24;--green:#07c160;--text:#323233;--sub:#969799;--line:#ebedf0;--bg:#f7f8fa}
+*{box-sizing:border-box}
+body{margin:0;font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text);font-size:14px}
+.wrap{max-width:660px;margin:0 auto;padding:16px 18px 40px}
+h1{font-size:18px;margin:6px 0 8px}
+.tip{color:var(--sub);font-size:12px;margin-bottom:14px;line-height:1.7;background:#fff;border-radius:8px;padding:10px 12px}
+.card{background:#fff;border-radius:8px;padding:14px;margin-bottom:14px;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+.card h2{font-size:15px;margin:0 0 12px;font-weight:600;color:var(--text)}
+.row{display:flex;align-items:center;margin:10px 0}
+.row>label{width:80px;color:var(--sub);flex:none;font-size:13px}
+select{flex:1;border:1px solid var(--line);border-radius:6px;padding:7px 10px;font-size:14px;background:#fff}
+.checks{display:flex;flex-wrap:wrap;gap:7px;margin-top:8px}
+.chk{display:inline-flex;align-items:center;border:1px solid var(--line);border-radius:14px;padding:4px 11px;font-size:12px;cursor:pointer;background:#fafafa;user-select:none;transition:.15s}
+.chk:hover{border-color:var(--blue)}
+.chk.on{background:var(--blue);color:#fff;border-color:var(--blue)}
+.btn{padding:10px 20px;border:none;border-radius:6px;font-size:14px;cursor:pointer;font-weight:500}
+.btn-primary{background:var(--blue);color:#fff}
+.btn-default{background:#fff;border:1px solid var(--line);color:var(--text)}
+.actions{display:flex;gap:10px;margin:14px 0;flex-wrap:wrap}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{border:1px solid var(--line);padding:7px 10px;text-align:left}
+th{background:#fafafa;color:var(--sub);font-weight:500}
+td.mine{color:var(--blue);font-weight:600}
+tr.diff td{background:#fff3f3}
+tr.diff td.mine{color:var(--red)}
+.ok{color:var(--green);font-weight:600}
+textarea{width:100%;border:1px solid var(--line);border-radius:6px;padding:10px;font-size:13px;height:130px;resize:vertical;font-family:monospace}
+.legend{font-size:12px;color:var(--sub);margin-top:8px}
+.mcnt{font-size:11px;color:var(--sub);margin-left:5px}
+.sec-title{font-size:12px;font-weight:600;color:var(--sub);margin:6px 0 4px;text-transform:uppercase;letter-spacing:.5px}
+.err{color:var(--red);background:#fee;padding:10px;border-radius:6px;margin:10px 0}
+/* 属性展开明细 */
+.attr-row{cursor:pointer;transition:.15s}
+.attr-row:hover{background:#f0f7ff}
+.attr-row .arrow{display:inline-block;width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:6px solid #999;transition:.2s;margin-right:6px;vertical-align:middle}
+.attr-row.open .arrow{transform:rotate(180deg)}
+.breakdown{display:none;padding:8px 10px 8px 28px;background:#fafafa;font-size:12px;color:#666;line-height:1.9;border-top:1px solid var(--line)}
+.breakdown.show{display:block}
+.breakdown span{display:inline-block;min-width:120px}
+.breakdown .bd-val{color:var(--blue);font-weight:600}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>勇者突进 · 计算器校准</h1>
+<div class="tip" id="tipText">正在加载数据...</div>
+
+<div class="card"><h2>基础模块（单选）</h2><div id="singleBox"></div></div>
+
+<div class="card"><h2>宝石 / 星图</h2>
+<div class="row"><label>宝石等级</label><select id="gemLevel"></select></div>
+<div class="row"><label>星图阵型</label><select id="starMapName"></select></div>
+</div>
+
+<div class="card"><h2>增益模块（可多选，点击勾选）</h2><div id="multiBox"></div></div>
+
+<div class="actions">
+<button class="btn btn-primary" id="calcBtn">计算</button>
+<button class="btn btn-default" id="presetBtn">载入「极限关羽」预设</button>
+<button class="btn btn-default" id="resetBtn">重置</button>
+<button class="btn btn-default" id="saveBtn">保存配置</button>
+<button class="btn btn-default" id="clearBtn">清除存档</button>
+</div>
+
+<div class="card"><h2>计算结果</h2>
+<table id="mineTable"><thead><tr><th>属性</th><th>我的结果</th><th>原站</th><th>差值</th></tr></thead><tbody></tbody></table>
+</div>
+
+<div class="card"><h2>原站结果（粘贴比对）</h2>
+<textarea id="target" placeholder="例如：&#10;攻击: 3560&#10;生命: 4210&#10;防御: 880&#10;..."></textarea>
+<button class="btn btn-primary" id="cmpBtn" style="margin-top:10px">比对</button>
+<div class="legend" id="cmpInfo"></div>
+</div>
+</div>
+
+<script>
+// ====== 从文件加载 all.json ======
+var ALL = null;
+var AK = []; // attrKeys
+var ATTR_LABELS = {};
+
+function initPage() {
+  if (!ALL) { document.getElementById('tipText').innerHTML = '<span class="err">数据加载失败！请确保此HTML放在 mryue-miniprogram 目录下打开（需要读取 data/modules/all.json）</span>'; return; }
+
+  AK = ALL.meta.attrKeys || [];
+  // 优先用 meta.attrLabels（更完整，含 tankDamage/对X增伤 等），其次顶层 attrLabels
+  ATTR_LABELS = ALL.meta.attrLabels || ALL.attrLabels || {};
+
+  document.getElementById('tipText').innerHTML = '用法：①点「载入极限关羽」自动填好全部模块 → ②点「计算」→ ③在原站用相同配置跑一次，把结果粘贴到下方文本框 → ④点「比对」看差异。';
+
+  // 多选模块定义
+  var MULTI = [
+    {key:'fumo',        label:'附魔',     pool:'fumo',        max:3},
+    {key:'diaoxiang',   label:'雕像',     pool:'diaoxiang',   max:5},
+    {key:'equipRefine', label:'装备洗炼', pool:'equipRefine', max:20},
+    {key:'zuoqiRefine', label:'坐骑洗炼', pool:'zuoqiRefine', max:4},
+    {key:'chongwu',     label:'宠物技能', pool:'chongwu',     max:6}
+  ];
+
+  // 单选模块
+  var SINGLE = [
+    {key:'wujiang',   label:'武将',   arr:'wujiang',   field:'name'},
+    {key:'shenshou',  label:'神兽',   arr:'shenshou',  field:'name'},
+    {key:'baowu',     label:'宝物',   arr:'baowu',     field:'name'},
+    {key:'yupei',     label:'玉佩',   arr:'yupei',     field:'name'},
+    {key:'zuoqi',     label:'坐骑',   arr:'zuoqi',     field:'name'},
+    {key:'xiangliu',  label:'魔丸',   arr:'xiangliu',  field:'name'}
+  ];
+
+  // 渲染单选
+  var singleBox = document.getElementById('singleBox');
+  SINGLE.forEach(function(m) {
+    var row = document.createElement('div'); row.className = 'row';
+    var lab = document.createElement('label'); lab.textContent = m.label; row.appendChild(lab);
+    var sel = document.createElement('select'); sel.id = 'sel_' + m.key;
+    sel.appendChild(new Option('未选择',''));
+    (ALL[m.arr]||[]).forEach(function(x) { sel.appendChild(new Option(x[m.field], x[m.field])); });
+    row.appendChild(sel); singleBox.appendChild(row);
+  });
+
+  // 四圣
+  (function() {
+    var row=document.createElement('div'); row.className='row';
+    var lab=document.createElement('label'); lab.textContent='四圣'; row.appendChild(lab);
+    var sel=document.createElement('select'); sel.id='sel_fourSaint';
+    sel.appendChild(new Option('未选择',''));
+    if (ALL.fourSaint && ALL.fourSaint.saints) {
+      Object.keys(ALL.fourSaint.saints).forEach(function(n){ sel.appendChild(new Option(n,n)); });
+    }
+    row.appendChild(sel); singleBox.appendChild(row);
+  })();
+
+  // 宝石
+  var gemSel=document.getElementById('gemLevel');
+  if (ALL.gem && ALL.gem.levels) {
+    ALL.gem.levels.forEach(function(l){ gemSel.appendChild(new Option(l,l)); });
+  }
+
+  // 星图
+  var starSel=document.getElementById('starMapName');
+  starSel.appendChild(new Option('未选择',''));
+  if (ALL.starMapFormations) {
+    Object.keys(ALL.starMapFormations).forEach(function(n){ starSel.appendChild(new Option(n,n)); });
+  }
+
+  // 渲染多选
+  var multiBox=document.getElementById('multiBox');
+  MULTI.forEach(function(m){
+    // 装备洗炼特殊处理：4部位独立面板
+    if(m.key==='equipRefine'){
+      renderEquipRefine4Part(multiBox, m);
+      return;
+    }
+    var wrap=document.createElement('div');
+    var title=document.createElement('div'); title.className='sec-title';
+    title.innerHTML=m.label+'<span class="mcnt">(最多'+m.max+')</span>';
+    wrap.appendChild(title);
+    var box=document.createElement('div'); box.className='checks'; box.id='chk_'+m.key;
+    var pool = ALL[m.pool]||{};
+    Object.keys(pool).forEach(function(n){
+      if(n.charAt(0)==='_') return;
+      var c=document.createElement('span'); c.className='chk'; c.textContent=n; c.dataset.name=n;
+      c.onclick=function(){
+        if(c.classList.contains('on')){ c.classList.remove('on'); }
+        else if(selectedCount(m.key)<m.max){ c.classList.add('on'); }
+        else { alert(m.label+'最多选'+m.max+'个'); }
+      };
+      box.appendChild(c);
+    });
+    wrap.appendChild(box); multiBox.appendChild(wrap);
+  });
+
+  // ====== 装备洗炼：4部位独立选择面板（仿原站）======
+  function renderEquipRefine4Part(container, m) {
+    var parts = ALL.equipRefine && ALL.equipRefine._parts || ['武器','衣服','鞋子','首饰'];
+    var flatPool = ALL.equipRefine && ALL.equipRefine._flat || {};
+    // 过滤掉元数据键
+    var attrNames = Object.keys(flatPool).filter(function(k){return k.charAt(0)!=='_';});
+
+    var outerWrap=document.createElement('div');
+    var mainTitle=document.createElement('div'); mainTitle.className='sec-title';
+    mainTitle.innerHTML=m.label+' <span class="mcnt">(每部位5槽，共4部位)</span>';
+    outerWrap.appendChild(mainTitle);
+
+    parts.forEach(function(partName){
+      var pWrap=document.createElement('div');
+      pWrap.style.cssText='margin-bottom:10px;padding:8px;background:#fafafa;border-radius:6px;border:1px solid #f0f0f0;';
+      var pt=document.createElement('div');
+      pt.style.cssText='font-size:12px;font-weight:600;color:#666;margin-bottom:6px;';
+      pt.textContent='● '+partName;
+      pWrap.appendChild(pt);
+      var box=document.createElement('div'); box.className='checks'; box.id='chk_'+m.key+'_'+partName;
+      attrNames.forEach(function(n){
+        var c=document.createElement('span'); c.className='chk'; c.textContent=n; c.dataset.name=n;
+        c.dataset.part=partName;
+        c.onclick=function(){
+          if(c.classList.contains('on')){ c.classList.remove('on'); }
+          else if(selectedCountPart(m.key,partName)<5){ c.classList.add('on'); }
+          else { alert(partName+'最多选5个属性'); }
+        };
+        box.appendChild(c);
+      });
+      pWrap.appendChild(box); outerWrap.appendChild(pWrap);
+    });
+    container.appendChild(outerWrap);
+  }
+
+  function selectedCount(key){ return document.querySelectorAll('#chk_'+key+' .chk.on').length; }
+  function selectedCountPart(key, part){ return document.querySelectorAll('#chk_'+key+'_'+part+' .chk.on').length; }
+
+  // 取选择
+  window.getSelectionData = function() {
+    var sel={};
+    SINGLE.forEach(function(m){
+      var v=document.getElementById('sel_'+m.key).value;
+      if(v) { var obj=(ALL[m.arr]||[]).find(function(x){return x[m.field]===v;}); sel[m.key]=obj; }
+    });
+    var fs=document.getElementById('sel_fourSaint').value;
+    if(fs && ALL.fourSaint && ALL.fourSaint.saints && ALL.fourSaint.saints[fs]) {
+      sel.sisheng=Object.assign({name:fs}, ALL.fourSaint.saints[fs]);
+    }
+    sel.gem={level:document.getElementById('gemLevel').value};
+    var sn=document.getElementById('starMapName').value;
+    if(sn) sel.starMapName=sn;
+    MULTI.forEach(function(m){
+      // 装备洗炼：从4部位面板读取，返回对象格式
+      if(m.key==='equipRefine'){
+        var parts = ALL.equipRefine && ALL.equipRefine._parts || ['武器','衣服','鞋子','首饰'];
+        var obj = {};
+        parts.forEach(function(part){
+          obj[part] = [].map.call(document.querySelectorAll('#chk_'+m.key+'_'+part+' .chk.on'), function(c){return c.dataset.name;});
+        });
+        sel[m.key]=obj;
+      } else {
+        var names=[].map.call(document.querySelectorAll('#chk_'+m.key+' .chk.on'), function(c){return c.dataset.name;});
+        sel[m.key]=names;
+      }
+    });
+    return sel;
+  };
+
+    // 引擎 - 支持4部位装备洗炼，带来源追踪
+  window.browserCompute = function(sel) {
+    var TALENT=ALL.talentDefault||{}, PET=ALL.petDefault||{}, PB=ALL.professionBase||{};
+    // 来源追踪：breakdown[attrKey] = [{m:'模块名', v:N}, ...]
+    var BD={}; AK.forEach(function(k){BD[k]=[];});
+    function addInto(acc,src,modName){ if(!src)return; var d=src.attributes||src; Object.keys(d).forEach(function(k){ if(AK.indexOf(k)!==-1&&typeof d[k]==='number'){ acc[k]=(acc[k]||0)+d[k]; if(d[k]!==0) BD[k].push({m:modName,v:d[k]}); } }); }
+    function addPool(acc,s,pool,pn){ if(!s)return; if(Array.isArray(s)){ s.forEach(function(n){ if(typeof n==='string'&&pool[n]) addInto(acc,pool[n],pn+'·'+n); else if(n&&typeof n==='object') addInto(acc,n,pn); }); }else addInto(acc,s,pn); }
+    // 装备洗炼4部位专用
+    function addEquipRefine4Part(acc, selData) {
+      if(!selData) return;
+      var ER=ALL.equipRefine;
+      if(Array.isArray(selData)) {
+        var flatPool = ER._flat || ER;
+        selData.forEach(function(n){ if(typeof n==='string'&&flatPool[n]) addInto(acc,flatPool[n],'装备洗炼·'+n); });
+      } else if(typeof selData === 'object') {
+        var parts = ER._parts || ['武器','衣服','鞋子','首饰'];
+        parts.forEach(function(part){
+          var partSlots = selData[part];
+          var partPool = ER[part] || ER._flat || ER;
+          if(Array.isArray(partSlots)){
+            partSlots.forEach(function(n){ if(typeof n==='string'&&partPool[n]) addInto(acc,partPool[n],'装备洗炼('+part+')·'+n); });
+          }
+        });
+      }
+    }
+    var acc={}; AK.forEach(function(k){acc[k]=0;});
+    // 1. 职业基础
+    if(sel.wujiang&&sel.wujiang.profession&&PB[sel.wujiang.profession]) addInto(acc,PB[sel.wujiang.profession],'职业基础');
+    // 2. 武将基础+被动
+    if(sel.wujiang&&sel.wujiang.generalBase) addInto(acc,sel.wujiang.generalBase,'武将基础');
+    if(sel.wujiang&&sel.wujiang.generalPassive) addInto(acc,sel.wujiang.generalPassive,'武将被动');
+    // 3. 天赋默认(W)
+    addInto(acc,TALENT,'天赋默认(W)');
+    // 4. 神兽/宝物/玉佩/坐骑/魔丸
+    if(sel.shenshou) addInto(acc,sel.shenshou,(sel.shenshou.name||'神兽'));
+    if(sel.baowu) addInto(acc,sel.baowu,(sel.baowu.name||'宝物'));
+    if(sel.yupei) addInto(acc,sel.yupei,(sel.yupei.name||'玉佩'));
+    if(sel.zuoqi) addInto(acc,sel.zuoqi,(sel.zuoqi.name||'坐骑'));
+    if(sel.xiangliu) addInto(acc,sel.xiangliu,(sel.xiangliu.name||'魔丸'));
+    // 5. 四圣
+    if(sel.sisheng) addInto(acc,sel.sisheng,(sel.sisheng.name||'四圣'));
+    // 6. 宝石(4颗累加)
+    if(sel.gem&&ALL.gem&&ALL.gem.gems&&ALL.gem.gems[sel.gem.level]){
+      var sum={},gemBD={};
+      Object.values(ALL.gem.gems[sel.gem.level]).forEach(function(t){ Object.keys(t).forEach(function(k){ if(AK.indexOf(k)!==-1){ sum[k]=(sum[k]||0)+t[k]; gemBD[k]=(gemBD[k]||0)+t[k]; } }); });
+      Object.keys(gemBD).forEach(function(k){if(gemBD[k]!==0)BD[k].push({m:'宝石('+sel.gem.level+')',v:gemBD[k]});});
+      (function(){var d=sum;Object.keys(d).forEach(function(k){if(AK.indexOf(k)!==-1&&typeof d[k]==='number')acc[k]=(acc[k]||0)+d[k];});})();
+    }
+    // 7. 星图(formation + 通用 + 国家)
+    if(sel.starMapName&&ALL.starMapFormations&&ALL.starMapFormations[sel.starMapName]){
+      var o=Object.assign({},ALL.starMapFormations[sel.starMapName]);
+      var starBD={},cBD={};
+      var ty=(ALL.starMaps&&ALL.starMaps['通用'])||{};
+      Object.values(ty).forEach(function(a){ if(a) Object.keys(a).forEach(function(k){ if(AK.indexOf(k)!==-1){ o[k]=(o[k]||0)+a[k]; starBD[k]=(starBD[k]||0)+a[k]; } }); });
+      var country=sel.wujiang?sel.wujiang.country:null;
+      if(country&&ALL.starMaps&&ALL.starMaps[country]){
+        Object.values(ALL.starMaps[country]).forEach(function(a){ if(a) Object.keys(a).forEach(function(k){ if(AK.indexOf(k)!==-1){ o[k]=(o[k]||0)+a[k]; cBD[k]=(cBD[k]||0)+a[k]; } }); });
+        Object.keys(cBD).forEach(function(k){if(cBD[k]!==0)BD[k].push({m:'星图('+country+')',v:cBD[k]});});
+      }
+      Object.keys(starBD).forEach(function(k){if(starBD[k]!==0)BD[k].push({m:'星图(通用)',v:starBD[k]});});
+      var fm=ALL.starMapFormations[sel.starMapName];
+      Object.keys(fm).forEach(function(k){if(AK.indexOf(k)!==-1&&typeof fm[k]==='number'&&fm[k]!==0)BD[k].push({m:'星图(阵型)',v:fm[k]});});
+      (function(){var d=o;Object.keys(d).forEach(function(k){if(AK.indexOf(k)!==-1&&typeof d[k]==='number')acc[k]=(acc[k]||0)+d[k];});})();
+    }
+    // 8. 宠物默认
+    if(PET&&Object.keys(PET).length){
+      Object.keys(PET).forEach(function(k){if(AK.indexOf(k)!==-1&&typeof PET[k]==='number'&&PET[k]!==0){acc[k]=(acc[k]||0)+PET[k];BD[k].push({m:'宠物默认',v:PET[k]});}});
+    }
+    // 9. 多槽位（装备洗炼用4部位专用函数）
+    addPool(acc,sel.fumo,ALL.fumo,'附魔');
+    addPool(acc,sel.diaoxiang,ALL.diaoxiang,'雕像');
+    addEquipRefine4Part(acc, sel.equipRefine);
+    addPool(acc,sel.zuoqiRefine,ALL.zuoqiRefine,'坐骑洗炼');
+    addPool(acc,sel.chongwu,ALL.chongwu,'宠物技能');
+    return {result: acc, breakdown: BD};
+  };  var MINE=null;   // {result:{...}, breakdown:{attrKey:[{m,v},...]}}
+
+  document.getElementById('calcBtn').onclick=function(){
+    var sel=getSelectionData();
+    var ret=browserCompute(sel);
+    MINE=ret.result;
+    var BD=ret.breakdown;
+    var tb=document.querySelector('#mineTable tbody'); tb.innerHTML='';
+    AK.forEach(function(k){
+      var v=MINE[k]||0; if(v===0) return;
+      // 主行（可点击展开）
+      var tr=document.createElement('tr'); tr.className='attr-row'; tr.dataset.attr=k;
+      var arrow='<span class="arrow"></span>';
+      tr.innerHTML='<td>'+arrow+(ATTR_LABELS[k]||k)+'</td><td class="mine">'+(Number.isInteger(v)?v:v.toFixed(2))+'</td><td class="tgt">—</td><td class="df">—</td>';
+      // 明细行
+      var bdRow=document.createElement('tr');
+      var items=(BD[k]||[]).map(function(item){return '<span>'+item.m+': <span class="bd-val">'+item.v+'</span></span>';}).join('');
+      bdRow.className='breakdown'; bdRow.id='bd_'+k;
+      bdRow.innerHTML='<td colspan="4">'+items+'</td>';
+      // 点击展开/收起
+      tr.onclick=function(){
+        var isOpen=this.classList.contains('open');
+        this.classList.toggle('open');
+        var detail=document.getElementById('bd_'+this.dataset.attr);
+        if(detail) detail.classList.toggle('show');
+      };
+      tb.appendChild(tr); tb.appendChild(bdRow);
+    });
+    document.getElementById('cmpInfo').textContent='已计算 '+tb.children.length/2+' 项非零属性。点击属性名展开来源明细。';
+  };
+
+  document.getElementById('resetBtn').onclick=function(){
+    document.querySelectorAll('.chk.on').forEach(function(c){c.classList.remove('on');});
+    // 重置单选
+    document.querySelectorAll('select').forEach(function(s){s.value='';});
+    MINE=null;
+    var tb=document.querySelector('#mineTable tbody'); if(tb) tb.innerHTML='';
+    document.getElementById('cmpInfo').textContent='';
+  };
+
+  // 预设 - 装备洗炼按4部位分组
+  var PRESET={
+    wujiang:'关羽', shenshou:'无尽·腾蛇', baowu:'打王鞭',
+    yupei:'破甲玉佩', zuoqi:'绝影', xiangliu:'蚩尤',
+    sisheng:'青龙·关羽', gemLevel:'20级', starMapName:'三蜀国前排',
+    fumo:['破甲','精准','暴击概率'],
+    diaoxiang:['生命','攻击','破甲','暴击概率','精准'],
+    equipRefine: {
+      '武器': ['破甲','攻击','精准','暴击概率','速度'],
+      '衣服': ['破甲','攻击','精准','暴击概率','速度'],
+      '鞋子': ['破甲','攻击','精准','暴击概率','速度'],
+      '首饰': ['破甲','攻击','精准','暴击概率','速度']
+    },
+    zuoqiRefine:['破甲','精准','暴击概率','冰冻命中'],
+    chongwu:['史诗连打','史诗神速','史诗狂暴','史诗士气','史诗神力','史诗精准']
+  };
+
+  function applyPreset(p){
+    if(p.wujiang) document.getElementById('sel_wujiang').value=p.wujiang;
+    if(p.shenshou) document.getElementById('sel_shenshou').value=p.shenshou;
+    if(p.baowu) document.getElementById('sel_baowu').value=p.baowu;
+    if(p.yupei) document.getElementById('sel_yupei').value=p.yupei;
+    if(p.zuoqi) document.getElementById('sel_zuoqi').value=p.zuoqi;
+    if(p.xiangliu) document.getElementById('sel_xiangliu').value=p.xiangliu;
+    if(p.sisheng) document.getElementById('sel_fourSaint').value=p.sisheng;
+    if(p.gemLevel) document.getElementById('gemLevel').value=p.gemLevel;
+    if(p.starMapName) document.getElementById('starMapName').value=p.starMapName;
+    document.querySelectorAll('.chk.on').forEach(function(c){c.classList.remove('on');});
+    MULTI.forEach(function(m){
+      var val = p[m.key];
+      if(!val) return;
+      // 装备洗炼：4部位对象格式 → 按部位分别选中checkbox
+      if(m.key==='equipRefine' && typeof val === 'object' && !Array.isArray(val)){
+        var parts = ALL.equipRefine && ALL.equipRefine._parts || ['武器','衣服','鞋子','首饰'];
+        parts.forEach(function(part){
+          (val[part]||[]).forEach(function(n){
+            var el=[].find.call(document.querySelectorAll('#chk_'+m.key+'_'+part+' .chk'),function(c){return c.dataset.name===n;});
+            if(el) el.classList.add('on');
+          });
+        });
+      } else if(Array.isArray(val)){
+        val.forEach(function(n){
+          var el=[].find.call(document.querySelectorAll('#chk_'+m.key+' .chk'),function(c){return c.dataset.name===n;});
+          if(el) el.classList.add('on');
+        });
+      }
+    });
+  }
+
+  document.getElementById('presetBtn').onclick=function(){applyPreset(PRESET);};
+
+  // 比对
+  document.getElementById('cmpBtn').onclick=function(){
+    if(!MINE){alert('请先点「计算」');return;}
+    var txt=document.getElementById('target').value.trim();
+    var map={};
+    txt.split(/\n/).forEach(function(line){
+      var m=line.match(/^\s*([^:：]+)[：:]\s*([-\d.]+)/);
+      if(m){var key=m[1].trim();var val=Number(m[2]);
+        var k=null;
+        for(var i=0;i<AK.length;i++){if((ATTR_LABELS[AK[i]]||AK[i])===key){k=AK[i];break;}}
+        if(k===null){for(var j=0;j<AK.length;j++){if(AK[j]===key){k=AK[j];break;}}}
+        if(k!=null) map[k]=val;
+      }
+    });
+    var tb=document.querySelector('#mineTable tbody');
+    var bad=0,tot=0;
+    [].forEach.call(tb.children,function(tr){
+      var label=tr.children[0].textContent;
+      var k=null;
+      for(var i=0;i<AK.length;i++){if((ATTR_LABELS[AK[i]]||AK[i])===label){k=AK[i];break;}}
+      var mine=MINE[k]||0;
+      var tgt=map[k];
+      var tgtTd=tr.children[2],dfTd=tr.children[3];
+      if(tgt!=null){tot++;var d=mine-tgt;dfTd.textContent=(d>0?'+':'')+d;
+        if(d!==0){tr.classList.add('diff');bad++;tgtTd.textContent=tgt;}
+        else{tr.classList.remove('diff');tgtTd.textContent=tgt;}
+      }else{tgtTd.textContent='—';dfTd.textContent='—';}
+    });
+    document.getElementById('cmpInfo').innerHTML=(tot===0?'未解析到原站数据。':'比对 '+tot+' 项，差异 '+bad+' 项。')+(bad===0?' <span class="ok">完全一致 ✓</span>':'');
+  };
+
+  // ====== 本地存档（localStorage）：保存 / 清除 / 打开自动恢复 ======
+  var SAVE_KEY = 'mryue_calib_save_v1';
+  // 把当前界面选择收拢成最小状态（只存名字，不存整条数据对象）
+  function collectState() {
+    var st = {};
+    SINGLE.forEach(function(m){ var v=document.getElementById('sel_'+m.key).value; if(v) st[m.key]=v; });
+    var fs=document.getElementById('sel_fourSaint').value; if(fs) st.sisheng=fs;
+    var gl=document.getElementById('gemLevel').value; if(gl) st.gemLevel=gl;
+    var sn=document.getElementById('starMapName').value; if(sn) st.starMapName=sn;
+    MULTI.forEach(function(m){
+      if(m.key==='equipRefine'){
+        var parts=ALL.equipRefine&&ALL.equipRefine._parts||['武器','衣服','鞋子','首饰'];
+        var obj={};
+        parts.forEach(function(part){ obj[part]=[].map.call(document.querySelectorAll('#chk_'+m.key+'_'+part+' .chk.on'),function(c){return c.dataset.name;}); });
+        st[m.key]=obj;
+      } else {
+        st[m.key]=[].map.call(document.querySelectorAll('#chk_'+m.key+' .chk.on'),function(c){return c.dataset.name;});
+      }
+    });
+    return st;
+  }
+  document.getElementById('saveBtn').onclick=function(){
+    try{
+      localStorage.setItem(SAVE_KEY, JSON.stringify(collectState()));
+      document.getElementById('cmpInfo').textContent='✅ 已保存当前配置到本地浏览器（下次打开自动恢复）';
+    }catch(e){
+      alert('保存失败：'+e.message+'\n提示：用 file:// 直接打开时，部分浏览器会禁用本地存储，可改用本地服务器打开此HTML。');
+    }
+  };
+  document.getElementById('clearBtn').onclick=function(){
+    try{
+      localStorage.removeItem(SAVE_KEY);
+      document.getElementById('cmpInfo').textContent='已清除本地存档（当前界面选择不受影响）';
+    }catch(e){}
+  };
+  // 页面打开时自动恢复上次的存档
+  (function(){
+    try{
+      var raw=localStorage.getItem(SAVE_KEY);
+      if(raw){
+        applyPreset(JSON.parse(raw));
+        var ci=document.getElementById('cmpInfo');
+        if(ci) ci.textContent='已从本地存档恢复上次配置（「保存配置」覆盖 / 「清除存档」清空）';
+      }
+    }catch(e){}
+  })();
+}
+
+// 加载 JSON - 用 script 标签加载（兼容 file:// 协议）
+(function() {
+  var s = document.createElement('script');
+  s.src = 'data/modules/all.data.js';
+  s.onload = function() {
+    try { ALL = window.ALL_JSON_DATA; initPage(); }
+    catch(e) { document.getElementById('tipText').innerHTML='<span class="err">数据初始化失败: '+e.message+'</span>'; }
+  };
+  s.onerror = function() {
+    document.getElementById('tipText').innerHTML='<span class="err">加载数据失败！请确保此HTML放在 mryue-miniprogram 目录下用浏览器直接打开。</span>';
+  };
+  document.head.appendChild(s);
+})();
+</script>
+</body>
+</html>
