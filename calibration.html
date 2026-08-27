@@ -87,7 +87,7 @@ var AK = []; // attrKeys
 var ATTR_LABELS = {};
 
 function initPage() {
-  if (!ALL) { document.getElementById('tipText').innerHTML = '<span class="err">数据加载失败！请确保此HTML放在 mryue-miniprogram 目录下打开（需要读取 data/modules/all.json）</span>'; return; }
+  if (!ALL) { document.getElementById('tipText').innerHTML = '<span class="err">数据加载失败！请确保 calibration.html 与 data/modules/all.data.js 在同一目录下（通过 http(s) 协议打开，不要用 file://）。</span>'; return; }
 
   AK = ALL.meta.attrKeys || [];
   // 优先用 meta.attrLabels（更完整，含 tankDamage/对X增伤 等），其次顶层 attrLabels
